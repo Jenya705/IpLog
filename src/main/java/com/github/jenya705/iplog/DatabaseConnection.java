@@ -29,7 +29,7 @@ public class DatabaseConnection {
                 config.getT("user"),
                 config.getT("password")
         );
-        update("create table if not exists LOGINS (\n" +
+        update("create table if not exists logins (\n" +
                 "    nickname text,\n" +
                 "    ip text,\n" +
                 "    join_time timestamp default NOW()\n," +
