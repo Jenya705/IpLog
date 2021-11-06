@@ -1,0 +1,13 @@
+# IpLog configuration
+# Made by Jenya705
+
+# Delay between logins (in seconds)
+# default: 20 minutes
+delay: 1200
+
+# SQL Config
+# Using mariadb
+user: root
+password: '1'
+database: minecraft
+host: localhost:3306
