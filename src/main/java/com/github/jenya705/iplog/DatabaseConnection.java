@@ -5,18 +5,13 @@ import lombok.SneakyThrows;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.stream.Collectors;
 
 /**
  * @author Jenya705
  */
 public class DatabaseConnection {
 
-    private static final int pageSize = 5;
-
     private final Connection connection;
-    private final long delay;
 
     public DatabaseConnection(IpLogConfig config) throws ClassNotFoundException, SQLException {
         Class.forName("com.mysql.cj.jdbc.Driver");
@@ -29,13 +24,12 @@ public class DatabaseConnection {
                 config.getT("user"),
                 config.getT("password")
         );
-        update("create table if not exists logins (\n" +
-                "    nickname text,\n" +
-                "    ip text,\n" +
-                "    join_time timestamp default NOW()\n," +
-                "    leave_time timestamp default NOW()\n" +
-                ");");
-        delay = (int) config.get("delay") * 1000L;
+        update("""
+                CREATE TABLE IF NOT EXISTS logins (
+                    nickname VARCHAR(16),
+                    ip VARCHAR(255),
+                    UNIQUE(nickname, ip)
+                );""");
     }
 
     @SneakyThrows
@@ -73,83 +67,36 @@ public class DatabaseConnection {
     }
 
     @SneakyThrows
-    public List<LoginData> getLoginByName(String name, int page) {
-        return getLogins(query(
-                "select * from logins where nickname = ? order by join_time desc limit ?, ?;",
-                name.toLowerCase(Locale.ROOT), pageSize * page, pageSize
-        ));
+    public List<String> getIps(String name) {
+        return resultSetToStringList(query("SELECT ip FROM logins WHERE nickname = ?", name));
     }
 
     @SneakyThrows
-    public List<LoginData> getLoginByIp(String ip, int page) {
-        return getLogins(query(
-                "select * from logins where ip = ? order by join_time desc limit ?, ?;",
-                ip, pageSize * page, pageSize
-        ));
+    public List<String> getNames(String ip) {
+        return resultSetToStringList(query("SELECT nickname FROM logins WHERE ip = ?", ip));
     }
 
     @SneakyThrows
-    public LoginData getLastLoginByName(String name) {
-        ResultSet resultSet = query(
-                "select * from logins where nickname = ? order by join_time desc limit 1;",
-                name.toLowerCase(Locale.ROOT)
-        );
-        if (!resultSet.next()) return null;
-        return LoginData.from(resultSet);
-    }
-
-    @SneakyThrows
-    public List<String> getPlayerIps(String name) {
-        ResultSet resultSet = query(
-                "select ip from logins where nickname = ? group by nickname;", name
-        );
-        List<String> array = new ArrayList<>();
-        while (resultSet.next()) array.add(resultSet.getString(1));
-        return array;
-    }
-
-    @SneakyThrows
-    public List<String> getPlayerAccounts(String name) {
-        List<String> ips = getPlayerIps(name);
-        ResultSet resultSet = query(
-                String.format(
-                        "select nickname from logins where ip in (%s) group by nickname;",
-                        ips
-                                .stream()
-                                .map(it -> "\"" + it + "\"")
-                                .collect(Collectors.joining(","))
-                )
-        );
-        List<String> nicknames = new ArrayList<>();
-        while (resultSet.next()) nicknames.add(resultSet.getString(1));
-        return nicknames;
-    }
-
-    @SneakyThrows
-    public void login(String name, String ip) {
-        LoginData lastLogin = getLastLoginByName(name);
-        if (lastLogin != null &&
-                lastLogin.getIp().equals(ip) &&
-                System.currentTimeMillis() - lastLogin.getLeave() <= delay) {
-            return;
-        }
-        update("insert into logins (nickname, ip) values (?, ?);", name.toLowerCase(Locale.ROOT), ip);
-    }
-
-    @SneakyThrows
-    public void leave(String name) {
-        LoginData lastLogin = getLastLoginByName(name);
-        update(
-                "update logins set leave_time = now() where nickname = ? and join_time = from_unixtime(?);",
-                name.toLowerCase(Locale.ROOT), lastLogin.getLogin() / 1000
+    public List<String> getAccounts(String name) {
+        return resultSetToStringList(
+                query("""
+                        SELECT DISTINCT nickname
+                        FROM logins
+                        WHERE ip IN (SELECT ip FROM logins WHERE nickname = ?) AND nickname != ?;
+                        """, name, name)
         );
     }
 
-    private List<LoginData> getLogins(ResultSet resultSet) throws SQLException {
-        List<LoginData> logins = new ArrayList<>();
-        while (resultSet.next()) {
-            logins.add(LoginData.from(resultSet));
-        }
-        return logins;
+    @SneakyThrows
+    public void insert(String nickname, String ip) {
+        if (nickname.length() > 16 || ip.length() > 255) return;
+        update("INSERT IGNORE INTO logins (nickname, ip) VALUES (?, ?);", nickname, ip);
     }
+
+    private static List<String> resultSetToStringList(ResultSet resultSet) throws SQLException {
+        List<String> result = new ArrayList<>();
+        while (resultSet.next()) result.add(resultSet.getString(1));
+        return result;
+    }
+
 }
